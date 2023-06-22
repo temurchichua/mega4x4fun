@@ -1,14 +1,13 @@
 #include <Arduino.h>
-
 /******************************************************************************
-red-only.ino
+red-plus-buttons.ino
 Byron Jacquot @ SparkFun Electronics
 1/6/2015
 
-Example to drive the red LEDs in the RGB button pad.
+Example to drive the red LEDs and scan the buttons of the RGB button pad.
 
-Exercise 1 in a series of 3.
-https://learn.sparkfun.com/tutorials/button-pad-hookup-guide/exercise-1-monochrome-leds
+Exercise 2 in a series of 3.
+https://learn.sparkfun.com/tutorials/button-pad-hookup-guide/exercise-2-monochrome-plus-buttons
 
 Development environment specifics:
 Developed in Arduino 1.6.5
@@ -21,24 +20,30 @@ Distributed as-is; no warranty is given.
 //config variables
 #define NUM_LED_COLUMNS (4)
 #define NUM_LED_ROWS (4)
+#define NUM_BTN_COLUMNS (4)
+#define NUM_BTN_ROWS (4)
 #define NUM_COLORS (1)
+
+#define MAX_DEBOUNCE (3)
 
 // Global variables
 static bool LED_buffer[NUM_LED_COLUMNS][NUM_LED_ROWS];
-static int32_t next_advance;
-static uint8_t led_index;
 
-static const uint8_t ledcolumnpins[NUM_LED_COLUMNS]   = {42,44,46,48};
-static const uint8_t colorpins[NUM_LED_ROWS] = {23,27,31,35};
+static const uint8_t btncolumnpins[NUM_BTN_COLUMNS] = {43, 45, 47, 49};
+static const uint8_t btnrowpins[NUM_BTN_ROWS]       = {22, 26, 30, 34};
+static const uint8_t ledcolumnpins[NUM_LED_COLUMNS] = {42, 44, 46, 48};
+static const uint8_t colorpins[NUM_LED_ROWS]        = {23, 27, 31, 35};
+static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
+
 
 static void setuppins()
 {
     uint8_t i;
 
-    // initialize all of the output pins
-
-    // LED column lines
-    for(i = 0; i < NUM_LED_COLUMNS; i++)
+    // initialize
+    // select lines
+    // LED columns
+    for (i = 0; i < NUM_LED_COLUMNS; i++)
     {
         pinMode(ledcolumnpins[i], OUTPUT);
 
@@ -46,15 +51,36 @@ static void setuppins()
         digitalWrite(ledcolumnpins[i], HIGH);
     }
 
-    // LED row lines
-    for(i = 0; i < NUM_LED_ROWS; i++)
+    // button columns
+    for (i = 0; i < NUM_BTN_COLUMNS; i++)
+    {
+        pinMode(btncolumnpins[i], OUTPUT);
+
+        // with nothing selected by default
+        digitalWrite(btncolumnpins[i], HIGH);
+    }
+
+    // button row input lines
+    for (i = 0; i < NUM_BTN_ROWS; i++)
+    {
+        pinMode(btnrowpins[i], INPUT_PULLUP);
+    }
+
+    // LED drive lines
+    for (i = 0; i < NUM_LED_ROWS; i++)
     {
         pinMode(colorpins[i], OUTPUT);
-
-        // with nothing driven by default
         digitalWrite(colorpins[i], LOW);
     }
 
+    // Initialize the debounce counter array
+    for (uint8_t i = 0; i < NUM_BTN_COLUMNS; i++)
+    {
+        for (uint8_t j = 0; j < NUM_BTN_ROWS; j++)
+        {
+            debounce_count[i][j] = 0;
+        }
+    }
 }
 
 static void scan()
@@ -63,28 +89,72 @@ static void scan()
     uint8_t val;
     uint8_t i, j;
 
-    // Select a column
+    // Select current columns
+    digitalWrite(btncolumnpins[current], LOW);
     digitalWrite(ledcolumnpins[current], LOW);
 
-    // write the row pins
-    for(i = 0; i < NUM_LED_ROWS; i++)
+    // output LED row values
+    for (i = 0; i < NUM_LED_ROWS; i++)
     {
-        if(LED_buffer[current][i])
+        if (LED_buffer[current][i])
         {
             digitalWrite(colorpins[i], HIGH);
         }
     }
 
+    // pause a moment
     delay(1);
 
+    // Read the button inputs
+    for ( j = 0; j < NUM_BTN_ROWS; j++)
+    {
+        val = digitalRead(btnrowpins[j]);
+
+        if (val == LOW)
+        {
+            // active low: val is low when btn is pressed
+            if ( debounce_count[current][j] < MAX_DEBOUNCE)
+            {
+                debounce_count[current][j]++;
+                if ( debounce_count[current][j] == MAX_DEBOUNCE )
+                {
+                    Serial.print("Key Down ");
+                    Serial.println((current * NUM_BTN_ROWS) + j);
+
+                    // Do whatever you want to with the button press here:
+                    // toggle the current LED state
+                    LED_buffer[current][j] = !LED_buffer[current][j];
+                }
+            }
+        }
+        else
+        {
+            // otherwise, button is released
+            if ( debounce_count[current][j] > 0)
+            {
+                debounce_count[current][j]--;
+                if ( debounce_count[current][j] == 0 )
+                {
+                    Serial.print("Key Up ");
+                    Serial.println((current * NUM_BTN_ROWS) + j);
+
+                    // If you want to do something when a key is released, do it here:
+
+                }
+            }
+        }
+    }// for j = 0 to 3;
+
+    delay(1);
+
+    digitalWrite(btncolumnpins[current], HIGH);
     digitalWrite(ledcolumnpins[current], HIGH);
 
-    for(i = 0; i < NUM_LED_ROWS; i++)
+    for (i = 0; i < NUM_LED_ROWS; i++)
     {
         digitalWrite(colorpins[i], LOW);
     }
 
-    // Move on to the next column
     current++;
     if (current >= NUM_LED_COLUMNS)
     {
@@ -97,43 +167,28 @@ void setup()
 {
     // put your setup code here, to run once:
     Serial.begin(115200);
+
     Serial.print("Starting Setup...");
 
     // setup hardware
     setuppins();
 
     // init global variables
-    next_advance = millis() + 1000;
-    led_index = 0;
-
-    // Initialize the LED display array
-    for(uint8_t i = 0; i < NUM_LED_COLUMNS; i++)
+    for (uint8_t i = 0; i < NUM_LED_COLUMNS; i++)
     {
-        for(uint8_t j = 0; j < NUM_LED_ROWS; j++)
+        for (uint8_t j = 0; j < NUM_LED_ROWS; j++)
         {
-            LED_buffer[i][j] = false;
+            LED_buffer[i][j] = 0;
         }
     }
-    // Set the first LED in the buffer on
-    LED_buffer[0][0] = true;
 
     Serial.println("Setup Complete.");
 
 }
 
-void loop()
-{
+void loop() {
     // put your main code here, to run repeatedly:
 
     scan();
 
-    if(millis() >= next_advance)
-    {
-        next_advance = millis()+1000;
-
-        LED_buffer[led_index/NUM_LED_COLUMNS][led_index%NUM_LED_COLUMNS] = false;
-        led_index++;
-        led_index %= (NUM_LED_COLUMNS * NUM_LED_ROWS);
-        LED_buffer[led_index/NUM_LED_COLUMNS][led_index%NUM_LED_COLUMNS] = true;
-    }
 }
