@@ -22,19 +22,28 @@ Distributed as-is; no warranty is given.
 #define NUM_LED_ROWS (4)
 #define NUM_BTN_COLUMNS (4)
 #define NUM_BTN_ROWS (4)
-#define NUM_COLORS (1)
+#define NUM_COLORS (3)
 
 #define MAX_DEBOUNCE (3)
 
 // Global variables
-static bool LED_buffer[NUM_LED_COLUMNS][NUM_LED_ROWS];
+static bool LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
+static int32_t next_scan;
 
-static const uint8_t btncolumnpins[NUM_BTN_COLUMNS] = {43, 45, 47, 49};
-static const uint8_t btnrowpins[NUM_BTN_ROWS]       = {22, 26, 30, 34};
-static const uint8_t ledcolumnpins[NUM_LED_COLUMNS] = {42, 44, 46, 48};
-static const uint8_t colorpins[NUM_LED_ROWS]        = {23, 27, 31, 35};
-static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS];
+static const uint8_t button_grounds[NUM_BTN_COLUMNS]         = {43, 45, 47, 49};
+static const uint8_t button_rows[NUM_BTN_ROWS]           = {22, 26, 30, 34};
 
+static const uint8_t led_grounds[NUM_LED_COLUMNS]         = {42, 44, 46, 48};
+static const uint8_t led_rows_rgb[NUM_LED_ROWS][NUM_COLORS] = {{23, 24, 25},
+                                                               {27, 28, 29},
+                                                               {31, 32, 33},
+                                                               {35, 36, 37} };
+// first column is red, second is green, third is blue
+
+
+
+static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS]; // debounce counter for each button
+// it is used to count the number of times a button is read as pressed
 
 static void setuppins()
 {
@@ -42,41 +51,41 @@ static void setuppins()
 
     // initialize
     // select lines
-    // LED columns
-    for (i = 0; i < NUM_LED_COLUMNS; i++)
+    for(i = 0; i < NUM_LED_COLUMNS; i++)
     {
-        pinMode(ledcolumnpins[i], OUTPUT);
+        pinMode(led_grounds[i], OUTPUT);
 
         // with nothing selected by default
-        digitalWrite(ledcolumnpins[i], HIGH);
+        digitalWrite(led_grounds[i], HIGH);
     }
 
-    // button columns
-    for (i = 0; i < NUM_BTN_COLUMNS; i++)
+    for(i = 0; i < NUM_BTN_COLUMNS; i++)
     {
-        pinMode(btncolumnpins[i], OUTPUT);
+        pinMode(button_grounds[i], OUTPUT);
 
         // with nothing selected by default
-        digitalWrite(btncolumnpins[i], HIGH);
+        digitalWrite(button_grounds[i], HIGH);
     }
 
-    // button row input lines
-    for (i = 0; i < NUM_BTN_ROWS; i++)
+    // key return lines
+    for(i = 0; i < 4; i++)
     {
-        pinMode(btnrowpins[i], INPUT_PULLUP);
+        pinMode(button_rows[i], INPUT_PULLUP);
     }
 
     // LED drive lines
-    for (i = 0; i < NUM_LED_ROWS; i++)
+    for(i = 0; i < NUM_LED_ROWS; i++)
     {
-        pinMode(colorpins[i], OUTPUT);
-        digitalWrite(colorpins[i], LOW);
+        for(uint8_t j = 0; j < NUM_COLORS; j++)
+        {
+            pinMode(led_rows_rgb[i][j], OUTPUT);
+            digitalWrite(led_rows_rgb[i][j], LOW);
+        }
     }
 
-    // Initialize the debounce counter array
-    for (uint8_t i = 0; i < NUM_BTN_COLUMNS; i++)
+    for(uint8_t i = 0; i < NUM_BTN_COLUMNS; i++)
     {
-        for (uint8_t j = 0; j < NUM_BTN_ROWS; j++)
+        for(uint8_t j = 0; j < NUM_BTN_ROWS; j++)
         {
             debounce_count[i][j] = 0;
         }
@@ -89,57 +98,52 @@ static void scan()
     uint8_t val;
     uint8_t i, j;
 
-    // Select current columns
-    digitalWrite(btncolumnpins[current], LOW);
-    digitalWrite(ledcolumnpins[current], LOW);
+    //run
+    digitalWrite(button_grounds[current], LOW);
+    digitalWrite(led_grounds[current], LOW);
 
-    // output LED row values
-    for (i = 0; i < NUM_LED_ROWS; i++)
+    for(i = 0; i < NUM_LED_ROWS; i++)
     {
-        if (LED_buffer[current][i])
+        uint8_t val = (LED_outputs[current][i] & 0x03);
+
+        if(val)
         {
-            digitalWrite(colorpins[i], HIGH);
+            digitalWrite(led_rows_rgb[i][val - 1], HIGH);
         }
     }
 
-    // pause a moment
+
     delay(1);
 
-    // Read the button inputs
-    for ( j = 0; j < NUM_BTN_ROWS; j++)
+    for( j = 0; j < NUM_BTN_ROWS; j++)
     {
-        val = digitalRead(btnrowpins[j]);
+        val = digitalRead(button_rows[j]);
 
-        if (val == LOW)
+        if(val == LOW)
         {
             // active low: val is low when btn is pressed
-            if ( debounce_count[current][j] < MAX_DEBOUNCE)
+            if( debounce_count[current][j] < MAX_DEBOUNCE)
             {
                 debounce_count[current][j]++;
-                if ( debounce_count[current][j] == MAX_DEBOUNCE )
+                if( debounce_count[current][j] == MAX_DEBOUNCE )
                 {
                     Serial.print("Key Down ");
                     Serial.println((current * NUM_BTN_ROWS) + j);
 
-                    // Do whatever you want to with the button press here:
-                    // toggle the current LED state
-                    LED_buffer[current][j] = !LED_buffer[current][j];
+                    LED_outputs[current][j]++;
                 }
             }
         }
         else
         {
             // otherwise, button is released
-            if ( debounce_count[current][j] > 0)
+            if( debounce_count[current][j] > 0)
             {
                 debounce_count[current][j]--;
-                if ( debounce_count[current][j] == 0 )
+                if( debounce_count[current][j] == 0 )
                 {
                     Serial.print("Key Up ");
                     Serial.println((current * NUM_BTN_ROWS) + j);
-
-                    // If you want to do something when a key is released, do it here:
-
                 }
             }
         }
@@ -147,20 +151,22 @@ static void scan()
 
     delay(1);
 
-    digitalWrite(btncolumnpins[current], HIGH);
-    digitalWrite(ledcolumnpins[current], HIGH);
+    digitalWrite(button_grounds[current], HIGH);
+    digitalWrite(led_grounds[current], HIGH);
 
-    for (i = 0; i < NUM_LED_ROWS; i++)
+    for(i = 0; i < NUM_LED_ROWS; i++)
     {
-        digitalWrite(colorpins[i], LOW);
+        for(j = 0; j < NUM_COLORS; j++)
+        {
+            digitalWrite(led_rows_rgb[i][j], LOW);
+        }
     }
 
     current++;
-    if (current >= NUM_LED_COLUMNS)
+    if (current >= NUM_BTN_COLUMNS)
     {
         current = 0;
     }
-
 }
 
 void setup()
@@ -174,21 +180,25 @@ void setup()
     setuppins();
 
     // init global variables
-    for (uint8_t i = 0; i < NUM_LED_COLUMNS; i++)
+    next_scan = millis() + 1;
+
+    for(uint8_t i = 0; i < NUM_LED_ROWS; i++)
     {
-        for (uint8_t j = 0; j < NUM_LED_ROWS; j++)
+        for(uint8_t j = 0; j < NUM_LED_COLUMNS; j++)
         {
-            LED_buffer[i][j] = 0;
+            LED_outputs[i][j] = 0;
         }
     }
 
     Serial.println("Setup Complete.");
-
 }
 
 void loop() {
     // put your main code here, to run repeatedly:
 
-    scan();
-
+    if(millis() >= next_scan)
+    {
+        next_scan = millis()+1;
+        scan();
+    }
 }
