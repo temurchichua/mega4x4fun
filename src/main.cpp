@@ -24,10 +24,10 @@ Distributed as-is; no warranty is given.
 #define NUM_BTN_ROWS (4)
 #define NUM_COLORS (3)
 
-#define MAX_DEBOUNCE (3)
+#define MAX_DEBOUNCE (2)
 
 // Global variables
-static bool LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
+static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
 static int32_t next_scan;
 
 static const uint8_t button_grounds[NUM_BTN_COLUMNS]         = {43, 45, 47, 49};
@@ -92,9 +92,8 @@ static void setuppins()
     }
 }
 
-static void scan()
-{
-    static uint8_t current = 0;
+static uint8_t current = 0;
+static void scan(){
     uint8_t val;
     uint8_t i, j;
 
@@ -102,13 +101,18 @@ static void scan()
     digitalWrite(button_grounds[current], LOW);
     digitalWrite(led_grounds[current], LOW);
 
-    for(i = 0; i < NUM_LED_ROWS; i++)
-    {
-        uint8_t val = (LED_outputs[current][i] & 0x03);
-
-        if(val)
-        {
-            digitalWrite(led_rows_rgb[i][val - 1], HIGH);
+    for (i = 0; i < NUM_LED_ROWS; i++) {
+        uint8_t val = LED_outputs[current][i];
+        // if any of the colors are on
+        if (val) {
+            // turn all the other colors off but the val - 1
+            for(j = 0; j < NUM_COLORS; j++) {
+                if(j != val - 1) {
+                    digitalWrite(led_rows_rgb[i][j], LOW);
+                } else {
+                    digitalWrite(led_rows_rgb[i][j], HIGH);
+                }
+            }
         }
     }
 
@@ -119,18 +123,20 @@ static void scan()
     {
         val = digitalRead(button_rows[j]);
 
-        if(val == LOW)
+        if ( val == LOW)
         {
             // active low: val is low when btn is pressed
-            if( debounce_count[current][j] < MAX_DEBOUNCE)
-            {
+            if (debounce_count[current][j] < MAX_DEBOUNCE) {
                 debounce_count[current][j]++;
-                if( debounce_count[current][j] == MAX_DEBOUNCE )
-                {
+
+                if(debounce_count[current][j] >= MAX_DEBOUNCE ) {
                     Serial.print("Key Down ");
                     Serial.println((current * NUM_BTN_ROWS) + j);
 
-                    LED_outputs[current][j]++;
+                    LED_outputs[current][j] = (LED_outputs[current][j] + 1) % 4; // 0 is off, 1 is red, 2 is green, 3 is blue
+                    Serial.print("LED value ");
+                    Serial.println(LED_outputs[current][j]);
+
                 }
             }
         }
@@ -158,6 +164,7 @@ static void scan()
     {
         for(j = 0; j < NUM_COLORS; j++)
         {
+            // turn all the colors off
             digitalWrite(led_rows_rgb[i][j], LOW);
         }
     }
