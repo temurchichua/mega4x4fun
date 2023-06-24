@@ -56,7 +56,7 @@ static const uint8_t led_rows_rgb[NUM_LED_ROWS][NUM_COLORS] = {{23, 24, 25},
 static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS]; // debounce counter for each button
 // it is used to count the number of times a button is read as pressed
 
-static void setuppins()
+static void pad_pins_setup()
 {
     uint8_t i;
 
@@ -195,7 +195,7 @@ void setup()
     Serial.print("Starting Setup...");
 
     // setup hardware
-    setuppins();
+    pad_pins_setup();
 
     // init global variables
     next_scan = millis() + 1;

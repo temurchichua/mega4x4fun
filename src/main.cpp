@@ -1,22 +1,10 @@
 #include <Arduino.h>
-/******************************************************************************
-red-plus-buttons.ino
-Byron Jacquot @ SparkFun Electronics
-1/6/2015
 
-Example to drive the red LEDs and scan the buttons of the RGB button pad.
+#include <Wire.h>           // Include the I2C library (required)
+#include <SparkFunSX1509.h> //Click here for the library: http://librarymanager/All#SparkFun_SX1509
 
-Exercise 2 in a series of 3.
-https://learn.sparkfun.com/tutorials/button-pad-hookup-guide/exercise-2-monochrome-plus-buttons
 
-Development environment specifics:
-Developed in Arduino 1.6.5
-For an Arduino Mega 2560
 
-This code is released under the [MIT License](http://opensource.org/licenses/MIT).
-
-Distributed as-is; no warranty is given.
-******************************************************************************/
 //config variables
 #define NUM_LED_COLUMNS (4)
 #define NUM_LED_ROWS (4)
@@ -26,130 +14,112 @@ Distributed as-is; no warranty is given.
 
 #define MAX_DEBOUNCE (2)
 
+// SX1509 I2C address (set by ADDR1 and ADDR0 (00 by default):
+const byte SX1509_ADDRESS = 0x3E; // SX1509 I2C address
+SX1509 io;                        // Create an SX1509 object to be used throughout
+
 // Global variables
 static uint8_t LED_outputs[NUM_LED_COLUMNS][NUM_LED_ROWS];
 static int32_t next_scan;
 
-static const uint8_t button_grounds[NUM_BTN_COLUMNS]         = {43, 45, 47, 49};
-static const uint8_t button_rows[NUM_BTN_ROWS]           = {22, 26, 30, 34};
+static const uint8_t button_grounds[NUM_BTN_COLUMNS]         = {0, 2, 4, 6};
+static const uint8_t led_grounds[NUM_LED_COLUMNS]         = {1, 3, 5, 7};
 
-static const uint8_t led_grounds[NUM_LED_COLUMNS]         = {42, 44, 46, 48};
-static const uint8_t led_rows_rgb[NUM_LED_ROWS][NUM_COLORS] = {{23, 24, 25},
-                                                               {27, 28, 29},
-                                                               {31, 32, 33},
-                                                               {35, 36, 37} };
-// first column is red, second is green, third is blue
+static const uint8_t button_rows[NUM_BTN_ROWS]           =  {8, 10, 12, 14};
+static const uint8_t led_red_rows[NUM_LED_ROWS]           = {9, 11, 13, 15};
 
 
 
 static int8_t debounce_count[NUM_BTN_COLUMNS][NUM_BTN_ROWS]; // debounce counter for each button
 // it is used to count the number of times a button is read as pressed
 
-static void setuppins()
+static void pad_pins_setup()
 {
-    uint8_t i;
 
     // initialize
     // select lines
-    for(i = 0; i < NUM_LED_COLUMNS; i++)
-    {
-        pinMode(led_grounds[i], OUTPUT);
-
+    // LED columns
+    for (uint8_t i = 0; i < NUM_LED_COLUMNS; i++) {
+        io.pinMode(led_grounds[i], OUTPUT);
         // with nothing selected by default
-        digitalWrite(led_grounds[i], HIGH);
-    }
-
-    for(i = 0; i < NUM_BTN_COLUMNS; i++)
-    {
-        pinMode(button_grounds[i], OUTPUT);
-
-        // with nothing selected by default
-        digitalWrite(button_grounds[i], HIGH);
-    }
-
-    // key return lines
-    for(i = 0; i < 4; i++)
-    {
-        pinMode(button_rows[i], INPUT_PULLUP);
+        io.digitalWrite(led_grounds[i], HIGH);
     }
 
     // LED drive lines
-    for(i = 0; i < NUM_LED_ROWS; i++)
-    {
-        for(uint8_t j = 0; j < NUM_COLORS; j++)
-        {
-            pinMode(led_rows_rgb[i][j], OUTPUT);
-            digitalWrite(led_rows_rgb[i][j], LOW);
-        }
+    for (uint8_t i = 0; i < NUM_LED_ROWS; i++) {
+        io.pinMode(led_red_rows[i], OUTPUT);
+        io.digitalWrite(led_red_rows[i], LOW);
     }
 
-    for(uint8_t i = 0; i < NUM_BTN_COLUMNS; i++)
-    {
-        for(uint8_t j = 0; j < NUM_BTN_ROWS; j++)
-        {
+    // button columns
+    for (uint8_t i = 0; i < NUM_BTN_COLUMNS; i++) {
+        io.pinMode(button_grounds[i], OUTPUT);
+
+        // with nothing selected by default
+        io.digitalWrite(button_grounds[i], HIGH);
+    }
+
+    // button row input lines
+    for (uint8_t i = 0; i < NUM_BTN_ROWS; i++) {
+        io.pinMode(button_rows[i], INPUT_PULLUP);
+    }
+
+    // Initialize the debounce counter array
+    for (uint8_t i = 0; i < NUM_BTN_COLUMNS; i++) {
+        for (uint8_t j = 0; j < NUM_BTN_ROWS; j++) {
             debounce_count[i][j] = 0;
         }
     }
 }
 
-static uint8_t current = 0;
-static void scan(){
+static void scan()
+{
+    static uint8_t current = 0;
     uint8_t val;
     uint8_t i, j;
 
-    //run
-    digitalWrite(button_grounds[current], LOW);
-    digitalWrite(led_grounds[current], LOW);
+    // Select current columns
+    io.digitalWrite(button_grounds[current], LOW);
+    io.digitalWrite(led_grounds[current], LOW);
 
+    // output LED row values
     for (i = 0; i < NUM_LED_ROWS; i++) {
-        uint8_t val = LED_outputs[current][i];
-        // if any of the colors are on
-        if (val) {
-            // turn all the other colors off but the val - 1
-            for(j = 0; j < NUM_COLORS; j++) {
-                if(j != val - 1) {
-                    digitalWrite(led_rows_rgb[i][j], LOW);
-                } else {
-                    digitalWrite(led_rows_rgb[i][j], HIGH);
-                }
-            }
+        if (LED_outputs[current][i]) {
+            io.digitalWrite(led_red_rows[i], HIGH);
         }
     }
 
-
+    // pause a moment
     delay(1);
 
-    for( j = 0; j < NUM_BTN_ROWS; j++)
-    {
-        val = digitalRead(button_rows[j]);
+    // Read the button inputs
+    for ( j = 0; j < NUM_BTN_ROWS; j++) {
+        val = io.digitalRead(button_rows[j]);
 
-        if ( val == LOW)
-        {
+        if (val == LOW) {
             // active low: val is low when btn is pressed
-            if (debounce_count[current][j] < MAX_DEBOUNCE) {
+            if ( debounce_count[current][j] < MAX_DEBOUNCE) {
                 debounce_count[current][j]++;
-
-                if(debounce_count[current][j] >= MAX_DEBOUNCE ) {
+                if ( debounce_count[current][j] == MAX_DEBOUNCE ) {
                     Serial.print("Key Down ");
                     Serial.println((current * NUM_BTN_ROWS) + j);
 
-                    LED_outputs[current][j] = (LED_outputs[current][j] + 1) % 4; // 0 is off, 1 is red, 2 is green, 3 is blue
-                    Serial.print("LED value ");
-                    Serial.println(LED_outputs[current][j]);
-
+                    // Do whatever you want to with the button press here:
+                    // toggle the current LED state
+                    LED_outputs[current][j] = !LED_outputs[current][j];
                 }
             }
         }
-        else
-        {
+        else {
             // otherwise, button is released
-            if( debounce_count[current][j] > 0)
-            {
+            if ( debounce_count[current][j] > 0) {
                 debounce_count[current][j]--;
-                if( debounce_count[current][j] == 0 )
-                {
+                if ( debounce_count[current][j] == 0 ) {
                     Serial.print("Key Up ");
                     Serial.println((current * NUM_BTN_ROWS) + j);
+
+                    // If you want to do something when a key is released, do it here:
+
                 }
             }
         }
@@ -157,55 +127,55 @@ static void scan(){
 
     delay(1);
 
-    digitalWrite(button_grounds[current], HIGH);
-    digitalWrite(led_grounds[current], HIGH);
+    io.digitalWrite(button_grounds[current], HIGH);
+    io.digitalWrite(led_grounds[current], HIGH);
 
-    for(i = 0; i < NUM_LED_ROWS; i++)
-    {
-        for(j = 0; j < NUM_COLORS; j++)
-        {
-            // turn all the colors off
-            digitalWrite(led_rows_rgb[i][j], LOW);
-        }
+    for (i = 0; i < NUM_LED_ROWS; i++) {
+        io.digitalWrite(led_red_rows[i], LOW);
     }
 
     current++;
-    if (current >= NUM_BTN_COLUMNS)
-    {
+    if (current >= NUM_LED_COLUMNS) {
         current = 0;
     }
+
 }
 
 void setup()
 {
     // put your setup code here, to run once:
     Serial.begin(115200);
+    Serial.println("Starting Setup...");
 
-    Serial.print("Starting Setup...");
+    Wire.begin(); //Initialize I2C bus
+    Serial.println("I2C bus initialized.");
 
-    // setup hardware
-    setuppins();
+    // Call io.begin(<address>) to initialize the SX1509. If it
+    // successfully communicates, it'll return 1.
+    bool io_success = io.begin(SX1509_ADDRESS);
+    if (!io_success) {
+        Serial.println("Failed to communicate. Check wiring and address of SX1509.");
+        io.digitalWrite(13, HIGH); // If we failed to communicate, turn the pin 13 LED on
+        while (1)
+            ; // If we fail to communicate, loop forever.
+    }
+    Serial.println("SX1509 communication OK.");
+
+    // setup 4x4 pad
+    pad_pins_setup();
 
     // init global variables
-    next_scan = millis() + 1;
-
-    for(uint8_t i = 0; i < NUM_LED_ROWS; i++)
-    {
-        for(uint8_t j = 0; j < NUM_LED_COLUMNS; j++)
-        {
+    for (uint8_t i = 0; i < NUM_LED_COLUMNS; i++) {
+        for (uint8_t j = 0; j < NUM_LED_ROWS; j++) {
             LED_outputs[i][j] = 0;
         }
     }
 
-    Serial.println("Setup Complete.");
+    Serial.println("Setup Complete.\n");
+
 }
 
 void loop() {
     // put your main code here, to run repeatedly:
-
-    if(millis() >= next_scan)
-    {
-        next_scan = millis()+1;
-        scan();
-    }
+    scan();
 }
